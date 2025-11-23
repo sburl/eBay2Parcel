@@ -39,24 +39,24 @@ _shared_auth = _import_shared_module()
 TokenManager = _shared_auth.TokenManager
 
 
-def get_token_manager() -> TokenManager:
+def get_token_manager(suffix: str = "") -> TokenManager:
     """Expose the shared token manager instance."""
-    return _shared_auth.get_token_manager()
+    return _shared_auth.get_token_manager(suffix)
 
 
-def ensure_valid_token(verbose: bool = True) -> bool:
+def ensure_valid_token(verbose: bool = True, suffix: str = "") -> bool:
     """Proxy to the shared helper so existing call sites stay unchanged."""
-    return _shared_auth.ensure_valid_token(verbose=verbose)
+    return _shared_auth.ensure_valid_token(verbose=verbose, suffix=suffix)
 
 
-def get_valid_token() -> Optional[str]:
+def get_valid_token(suffix: str = "") -> Optional[str]:
     """
     Convenience helper retained from the legacy module.
 
     Returns:
         Valid access token string or ``None`` if the refresh failed.
     """
-    manager = get_token_manager()
+    manager = get_token_manager(suffix)
     if manager.ensure_valid_token(verbose=False):
         return manager.get_current_token()
     return None

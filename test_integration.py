@@ -43,9 +43,10 @@ class TesteBay2Parcel(unittest.TestCase):
             }
         }
         
-        shipments, delivered_skipped = extract_tracking_info(mock_orders)
+        shipments, delivered_skipped, aged_skipped = extract_tracking_info(mock_orders)
         self.assertEqual(len(shipments), 2)
         self.assertEqual(delivered_skipped, 0)
+        self.assertEqual(aged_skipped, 0)
         self.assertEqual(shipments[0]['tracking_number'], '1234567890')
         self.assertEqual(shipments[0]['carrier'], 'USPS')
         self.assertEqual(shipments[1]['tracking_number'], '0987654321')
@@ -65,9 +66,10 @@ class TesteBay2Parcel(unittest.TestCase):
                 }
             }
         }
-        shipments, delivered_skipped = extract_tracking_info(mock_orders)
+        shipments, delivered_skipped, aged_skipped = extract_tracking_info(mock_orders)
         self.assertEqual(len(shipments), 0)
         self.assertEqual(delivered_skipped, 1)
+        self.assertEqual(aged_skipped, 0)
 
     @patch('main.requests.post')
     def test_parcel_client_add_delivery(self, mock_post):

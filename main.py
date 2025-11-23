@@ -16,23 +16,27 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
+def _env_key(base: str, suffix: str) -> str:
+    return f"{base}_{suffix}" if suffix else base
+
+
 class EbayClient:
-    def __init__(self):
+    def __init__(self, suffix: str = ""):
         # Ensure we have a valid token before starting
-        if not ensure_valid_token():
-            raise Exception("Failed to obtain valid eBay token")
+        if not ensure_valid_token(suffix=suffix):
+            raise Exception(f"Failed to obtain valid eBay token for suffix '{suffix}'")
             
-        self.token = get_token_manager().get_current_token()
+        self.token = get_token_manager(suffix=suffix).get_current_token()
         self.api = Trading(
-            appid=os.getenv("EBAY_APP_ID"),
-            certid=os.getenv("EBAY_CLIENT_SECRET"), # Note: ebaysdk uses certid for client secret in some contexts, but for OAuth token usage, we just need the token.
-            devid=os.getenv("EBAY_DEV_ID"),
+            appid=os.getenv(_env_key("EBAY_APP_ID", suffix)),
+            certid=os.getenv(_env_key("EBAY_CLIENT_SECRET", suffix)), # ebaysdk uses certid for client secret in some contexts
+            devid=os.getenv(_env_key("EBAY_DEV_ID", suffix)),
             token=self.token,
             config_file=None,
             domain="api.ebay.com"
         )
 
-    def get_recent_orders(self, days_back=30):
+    def get_recent_orders(self, days_back=90):
         """Fetch orders from the last N days where the user is the buyer."""
         try:
             # Calculate time range
@@ -77,10 +81,14 @@ class ParcelClient:
             logger.warning("PARCEL_API_KEY not found in environment variables")
 
     def add_delivery(self, tracking_number, carrier_code, description):
-        """Add a delivery to Parcel app."""
+        """Add a delivery to Parcel app.
+
+        Returns:
+            (success: bool, rate_limited: bool)
+        """
         if not self.api_key:
             logger.error("Cannot add delivery: Missing Parcel API Key")
-            return False
+            return False, False
 
         headers = {
             "api-key": self.api_key,
@@ -105,21 +113,30 @@ class ParcelClient:
 
             if response.status_code == 200:
                 logger.info(f"Successfully added {tracking_number} to Parcel")
-                return True
+                return True, False
 
-            if response.status_code == 400 and error_message and "already added" in error_message.lower():
-                logger.info(f"{tracking_number} already exists in Parcel; skipping")
-                return True  # Treat as handled so we add to history and avoid retrying
+            if response.status_code == 400 and error_message:
+                lower = error_message.lower()
+                if "already added" in lower:
+                    logger.info(f"{tracking_number} already exists in Parcel; skipping")
+                    return True, False  # Treat as handled so we add to history and avoid retrying
+                if "unsupported carrier" in lower:
+                    logger.error(f"Unsupported carrier for {tracking_number}; please add manually. Message: {error_message}")
+                    return False, False
+
+            if response.status_code == 429:
+                logger.error(f"Rate limited by Parcel while adding {tracking_number}; stopping further requests. Message: {error_message or response.text}")
+                return False, True
 
             logger.error(
                 f"Failed to add delivery. Status: {response.status_code}, "
                 f"Error: {error_message or response.text}"
             )
-            return False
+            return False, False
                 
         except Exception as e:
             logger.error(f"Error adding delivery to Parcel: {e}")
-            return False
+            return False, False
 
 def load_history():
     if os.path.exists("tracking_history.json"):
@@ -135,18 +152,32 @@ def save_history(history):
         json.dump(history, f, indent=2)
 
 def extract_tracking_info(orders):
-    """Extract tracking numbers and carrier info from orders, skipping delivered shipments."""
+    """Extract tracking numbers and carrier info from orders, skipping delivered/old shipments."""
     shipments = []
     delivered_skipped = 0
+    aged_skipped = 0
+    max_age_days = int(os.getenv("MAX_SHIPMENT_AGE_DAYS", "45"))
     
     if not orders or 'OrderArray' not in orders or not orders['OrderArray']:
-        return shipments, delivered_skipped
+        return shipments, delivered_skipped, aged_skipped
         
     order_list = orders['OrderArray'].get('Order', [])
     if isinstance(order_list, dict):
         order_list = [order_list]
         
     for order in order_list:
+        # Approximate age to avoid pushing very old (likely delivered) shipments
+        order_time_str = order.get('ShippedTime') or order.get('PaidTime') or order.get('CreatedTime')
+        if order_time_str:
+            try:
+                # eBay uses ISO-like with Z
+                order_time = datetime.fromisoformat(order_time_str.replace('Z', '+00:00'))
+                if (datetime.now(timezone.utc) - order_time).days > max_age_days:
+                    aged_skipped += 1
+                    continue
+            except Exception:
+                pass
+
         # Check for shipping details
         if 'ShippingDetails' in order:
             shipping_details = order['ShippingDetails']
@@ -201,61 +232,71 @@ def extract_tracking_info(orders):
                         'description': title
                     })
                     
-    return shipments, delivered_skipped
+    return shipments, delivered_skipped, aged_skipped
 
-def main():
-    print("Starting eBay2Parcel...")
-    
-    # Initialize clients
+def _account_suffixes():
+    """Collect configured account suffixes: default, then _2, _3, ..."""
+    suffixes = []
+    if os.getenv('EBAY_APP_ID'):
+        suffixes.append("")
+    # Numeric suffixes starting at 2 (EBAY_APP_ID_2, EBAY_APP_ID_3, ...)
+    i = 2
+    while True:
+        if os.getenv(f'EBAY_APP_ID_{i}'):
+            suffixes.append(str(i))
+            i += 1
+            continue
+        break
+    return suffixes
+
+
+def process_account(suffix: str, history, history_tracking_numbers, days_back: int = 90):
+    label = f"default" if not suffix else f"account {suffix}"
+    logger.info(f"[{label}] Initializing clients...")
     try:
-        ebay = EbayClient()
+        ebay = EbayClient(suffix=suffix)
         parcel = ParcelClient()
     except Exception as e:
-        logger.critical(f"Initialization failed: {e}")
-        return
+        logger.critical(f"[{label}] Initialization failed: {e}")
+        return 0
 
-    # Load history
-    history = load_history()
-    history_tracking_numbers = [item['tracking_number'] for item in history]
-    
-    # Fetch orders
-    logger.info("Fetching recent orders from eBay...")
-    orders = ebay.get_recent_orders(days_back=30)
+    logger.info(f"[{label}] Fetching recent orders from eBay (last {days_back} days)...")
+    orders = ebay.get_recent_orders(days_back=days_back)
     
     if not orders:
-        logger.info("No orders found or error fetching orders.")
-        return
+        logger.info(f"[{label}] No orders found or error fetching orders.")
+        return 0
     
     order_list = orders.get('OrderArray', {}).get('Order', [])
     if isinstance(order_list, dict):
         order_list = [order_list]
-    logger.info(f"Processing {len(order_list)} orders for tracking extraction")
+    logger.info(f"[{label}] Processing {len(order_list)} orders for tracking extraction")
 
-    # Extract shipments
-    shipments, delivered_skipped = extract_tracking_info(orders)
-    total_with_tracking = len(shipments) + delivered_skipped
+    shipments, delivered_skipped, aged_skipped = extract_tracking_info(orders)
+    total_with_tracking = len(shipments) + delivered_skipped + aged_skipped
     logger.info(
-        f"Found {total_with_tracking} shipments with tracking info "
-        f"(skipped {delivered_skipped} already delivered)."
+        f"[{label}] Found {total_with_tracking} shipments with tracking info "
+        f"(skipped {delivered_skipped} delivered, {aged_skipped} older than MAX_SHIPMENT_AGE_DAYS)."
     )
-    
+
     new_shipments_count = 0
+    history_set = set(history_tracking_numbers)
+    run_seen = set()
+    max_per_run = int(os.getenv("PARCEL_MAX_PER_RUN", "20"))
+    attempts = 0
     
     for shipment in shipments:
         tracking_number = shipment['tracking_number']
-        
-        if tracking_number in history_tracking_numbers:
-            logger.debug(f"Skipping existing tracking number: {tracking_number}")
+        if tracking_number in history_set or tracking_number in run_seen:
+            logger.debug(f"[{label}] Skipping existing tracking number: {tracking_number}")
             continue
+        run_seen.add(tracking_number)
+        if attempts >= max_per_run:
+            logger.info(f"[{label}] Reached PARCEL_MAX_PER_RUN={max_per_run}; stopping further requests.")
+            break
             
-        # Add to Parcel
-        # Note: Parcel requires specific carrier codes. 
-        # We might need a mapping, but for now we pass the carrier string from eBay
-        # and hope Parcel's auto-detect or loose matching works, or use 'pholder' if unknown.
-        # Ideally we should map eBay carrier names to Parcel carrier codes.
         carrier_code = shipment.get('carrier', 'pholder') 
         
-        # Simple mapping for common carriers (can be expanded)
         carrier_map = {
             'USPS': 'usps',
             'UPS': 'ups',
@@ -270,25 +311,50 @@ def main():
                 carrier_code = value
                 break
         
-        success = parcel.add_delivery(
+        success, rate_limited = parcel.add_delivery(
             tracking_number=tracking_number,
             carrier_code=carrier_code,
             description=shipment['description']
         )
+        attempts += 1
         
+        if rate_limited:
+            logger.error(f"[{label}] Hit Parcel rate limit; stopping further requests for this run.")
+            break
+
         if success:
             history.append({
                 'tracking_number': tracking_number,
                 'added_at': datetime.now(timezone.utc).isoformat()
             })
+            history_set.add(tracking_number)
+            history_tracking_numbers.append(tracking_number)
             new_shipments_count += 1
             
-    # Save updated history
-    if new_shipments_count > 0:
+    return new_shipments_count
+
+
+def main():
+    print("Starting eBay2Parcel...")
+    
+    history = load_history()
+    history_tracking_numbers = [item['tracking_number'] for item in history]
+
+    suffixes = _account_suffixes()
+    if not suffixes:
+        logger.critical("No EBAY_APP_ID configured in environment")
+        return
+
+    total_added = 0
+    for suffix in suffixes:
+        added = process_account(suffix, history, history_tracking_numbers, days_back=90)
+        total_added += added
+    
+    if total_added > 0:
         save_history(history)
-        logger.info(f"Successfully added {new_shipments_count} new shipments to Parcel.")
+        logger.info(f"Successfully added {total_added} new shipments to Parcel across all accounts.")
     else:
-        logger.info("No new shipments to add.")
+        logger.info("No new shipments to add across all accounts.")
 
 if __name__ == "__main__":
     main()

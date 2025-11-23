@@ -74,8 +74,10 @@ curl -X POST https://api.ebay.com/identity/v1/oauth2/token \
 ```
 python main.py
 ```
-- Fetches up to 30 days of orders, extracts tracking info, maps common carriers (USPS/UPS/FedEx/DHL/Amazon), and posts to Parcel.
+- Fetches up to 90 days of orders, extracts tracking info, skips delivered shipments, maps common carriers (USPS/UPS/FedEx/DHL/Amazon), and posts to Parcel.
 - Successful posts are logged and tracking numbers are added to `tracking_history.json` to avoid duplicates on the next run.
+- Parcel free tier rate-limits (20/day); if a 429 is encountered, the script stops further requests for that run and logs the tracking number so you can retry later.
+- Set `MAX_SHIPMENT_AGE_DAYS` (default 45) to skip pushing older likely-delivered shipments.
 
 ### Cron-friendly usage
 Example daily run at 3:15 AM (update paths as needed):
@@ -90,6 +92,13 @@ If your refresh token expires, re-authorize and then run the helper from the pip
 python -m shared_ebay.generate_token
 ```
 Requires `EBAY_APP_ID`, `EBAY_CLIENT_SECRET`, and `EBAY_RUNAME` in `.env`. The script walks you through the browser auth, exchanges the code, and updates `EBAY_USER_TOKEN` / `EBAY_REFRESH_TOKEN` in `.env`.
+
+### Multiple eBay accounts
+Add suffixed env vars (`EBAY_APP_ID_2`, `EBAY_CLIENT_SECRET_2`, `EBAY_DEV_ID_2`, `EBAY_RUNAME_2`, `EBAY_USER_TOKEN_2`, `EBAY_REFRESH_TOKEN_2`, etc.). The script will process the default account and then each numbered account in order.
+
+### Throttling and age limits
+- `PARCEL_MAX_PER_RUN` (default 20) caps attempts per run; script stops once reached or on a 429.
+- `MAX_SHIPMENT_AGE_DAYS` (default 45) skips pushing older likely-delivered shipments.
 
 ## Verification / tests
 ```

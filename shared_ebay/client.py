@@ -14,8 +14,9 @@ from .auth import ensure_valid_token
 logger = logging.getLogger(__name__)
 
 class eBayClient:
-    def __init__(self):
-        self.config = get_config()
+    def __init__(self, suffix: str = ""):
+        self.suffix = suffix
+        self.config = get_config(suffix)
         self.base_url = self.config.ebay_browse_api_url
         self.token_refreshed_at = None
         self.token_lifetime_seconds = 7200
@@ -29,7 +30,7 @@ class eBayClient:
         return age_seconds > self.token_refresh_threshold
 
     def _refresh_token(self):
-        if not ensure_valid_token(verbose=False):
+        if not ensure_valid_token(verbose=False, suffix=self.suffix):
             raise ValueError("Unable to obtain valid eBay token")
 
         # Reload to get latest token
@@ -37,7 +38,8 @@ class eBayClient:
         import os
         load_dotenv(override=True)
         
-        self.user_token = os.getenv('EBAY_USER_TOKEN')
+        suffix_key = f"_{self.suffix}" if self.suffix else ""
+        self.user_token = os.getenv(f'EBAY_USER_TOKEN{suffix_key}')
         if not self.user_token:
             raise ValueError("EBAY_USER_TOKEN not found")
 
