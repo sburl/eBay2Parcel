@@ -1,0 +1,22 @@
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.venv/
+
+# Environment and secrets
+.env
+.env.*
+
+# Local data
+tracking_history.json
+
+# Local clones
+eBayAPIHelpers/
+
+# OS files
+.DS_Store
