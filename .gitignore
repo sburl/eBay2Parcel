@@ -14,9 +14,11 @@ venv/
 !.env.example
 sync-env.sh
 run.sh
+run_ebay2parcel.sh
 
 # Local data
 tracking_history.json
+cron.log
 
 # Local clones
 eBayAPIHelpers/

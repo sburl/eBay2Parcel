@@ -79,10 +79,19 @@ Run the script manually:
 python main.py
 ```
 
-Or set up a cron job for automatic daily imports (example for 3:15 AM daily):
+Or set up a cron job for automatic daily imports:
+
 ```bash
-15 3 * * * cd /path/to/eBay2Parcel && /path/to/eBay2Parcel/venv/bin/python main.py >> cron.log 2>&1
+# Copy and customize the wrapper script
+cp run_ebay2parcel.sh.example run_ebay2parcel.sh
+# Edit run_ebay2parcel.sh to set your actual path
+chmod +x run_ebay2parcel.sh
+
+# Add to crontab (crontab -e) for daily 3:15 AM run:
+15 3 * * * /path/to/eBay2Parcel/run_ebay2parcel.sh >> /path/to/eBay2Parcel/cron.log 2>&1
 ```
+
+**macOS users:** You may need to grant cron Full Disk Access in System Settings → Privacy & Security.
 
 ### What it does:
 - Fetches orders from the last 90 days
