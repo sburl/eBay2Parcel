@@ -40,10 +40,10 @@ class Config:
         # API Endpoints
         self.ebay_browse_api_url = "https://api.ebay.com/buy/browse/v1"
         
-        # Shipping Configuration
+        # Shipping Configuration (used for Browse API only, not needed for Trading API)
         self.shipping_zip_code = env('SHIPPING_ZIP_CODE', '00000')
-        
-        # Sales Tax Configuration
+
+        # Sales Tax Configuration (used for Browse API only, not needed for Trading API)
         try:
             self.sales_tax_rate = float(env('SALES_TAX_RATE', '0.0'))
         except ValueError:

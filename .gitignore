@@ -11,6 +11,7 @@ venv/
 # Environment and secrets
 .env
 .env.*
+!.env.example
 sync-env.sh
 run.sh
 
