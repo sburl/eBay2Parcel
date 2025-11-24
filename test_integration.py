@@ -71,6 +71,33 @@ class TesteBay2Parcel(unittest.TestCase):
         self.assertEqual(delivered_skipped, 1)
         self.assertEqual(aged_skipped, 0)
 
+    def test_extract_tracking_info_skips_delivery_marked_in_shipment_array(self):
+        mock_orders = {
+            'OrderArray': {
+                'Order': {
+                    'ShippingDetails': {
+                        'ShipmentTrackingDetails': {
+                            'ShipmentTrackingNumber': '222',
+                            'ShippingCarrierUsed': 'UPS'
+                        }
+                    },
+                    'ShipmentArray': {
+                        'Shipment': {
+                            'ActualDeliveryDate': '2024-11-10T12:00:00.000Z',
+                            'ShipmentTrackingDetails': {
+                                'ShipmentTrackingNumber': '222'
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        shipments, delivered_skipped, aged_skipped = extract_tracking_info(mock_orders)
+        self.assertEqual(len(shipments), 0)
+        self.assertEqual(delivered_skipped, 1)
+        self.assertEqual(aged_skipped, 0)
+
     @patch('main.requests.post')
     def test_parcel_client_add_delivery(self, mock_post):
         # Mock environment variable

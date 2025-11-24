@@ -151,6 +151,44 @@ def save_history(history):
     with open("tracking_history.json", "w") as f:
         json.dump(history, f, indent=2)
 
+def _delivered_tracking_numbers(order):
+    """Collect tracking numbers already marked delivered via shipment details."""
+    delivered = set()
+    shipments = order.get('ShipmentArray', {}).get('Shipment', [])
+    if isinstance(shipments, dict):
+        shipments = [shipments]
+
+    for shipment in shipments:
+        shipment_status = shipment.get('Status')
+        shipment_delivered_time = shipment.get('ActualDeliveryDate') or shipment.get('DeliveryDate')
+        shipment_marked_delivered = False
+        if shipment_status and 'delivered' in str(shipment_status).lower():
+            shipment_marked_delivered = True
+        if shipment_delivered_time:
+            shipment_marked_delivered = True
+
+        tracking_details = shipment.get('ShipmentTrackingDetails') or []
+        if isinstance(tracking_details, dict):
+            tracking_details = [tracking_details]
+
+        for tracking in tracking_details:
+            tracking_number = tracking.get('ShipmentTrackingNumber')
+            if not tracking_number:
+                continue
+
+            delivered_flag = shipment_marked_delivered
+            delivery_status = tracking.get('DeliveryStatus') or tracking.get('Status')
+            delivered_time = tracking.get('ActualDeliveryDate') or tracking.get('DeliveryDate')
+            if delivery_status and 'delivered' in str(delivery_status).lower():
+                delivered_flag = True
+            if delivered_time:
+                delivered_flag = True
+
+            if delivered_flag:
+                delivered.add(tracking_number)
+
+    return delivered
+
 def extract_tracking_info(orders):
     """Extract tracking numbers and carrier info from orders, skipping delivered/old shipments."""
     shipments = []
@@ -178,6 +216,8 @@ def extract_tracking_info(orders):
             except Exception:
                 pass
 
+        delivered_numbers = _delivered_tracking_numbers(order)
+
         # Check for shipping details
         if 'ShippingDetails' in order:
             shipping_details = order['ShippingDetails']
@@ -202,13 +242,16 @@ def extract_tracking_info(orders):
                 carrier = tracking.get('ShippingCarrierUsed') or tracking.get('ShippingCarrierCode')
                 
                 # Skip already delivered shipments based on status or delivery date
-                delivery_status = tracking.get('DeliveryStatus') or tracking.get('Status')
-                delivered_time = tracking.get('ActualDeliveryDate') or tracking.get('DeliveryDate')
                 delivered_flag = False
-                if delivery_status:
-                    delivered_flag = 'delivered' in str(delivery_status).lower()
-                if delivered_time:
+                if tracking_number in delivered_numbers:
                     delivered_flag = True
+                else:
+                    delivery_status = tracking.get('DeliveryStatus') or tracking.get('Status')
+                    delivered_time = tracking.get('ActualDeliveryDate') or tracking.get('DeliveryDate')
+                    if delivery_status:
+                        delivered_flag = 'delivered' in str(delivery_status).lower()
+                    if delivered_time:
+                        delivered_flag = True
                 if delivered_flag:
                     delivered_skipped += 1
                     continue
