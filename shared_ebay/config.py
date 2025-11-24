@@ -36,18 +36,9 @@ class Config:
         # User token (can be empty on first run, will be obtained via OAuth)
         self.ebay_user_token = env('EBAY_USER_TOKEN', '')
         self.ebay_refresh_token = env('EBAY_REFRESH_TOKEN', '')
-        
-        # API Endpoints
-        self.ebay_browse_api_url = "https://api.ebay.com/buy/browse/v1"
-        
-        # Shipping Configuration (used for Browse API only, not needed for Trading API)
-        self.shipping_zip_code = env('SHIPPING_ZIP_CODE', '00000')
 
-        # Sales Tax Configuration (used for Browse API only, not needed for Trading API)
-        try:
-            self.sales_tax_rate = float(env('SALES_TAX_RATE', '0.0'))
-        except ValueError:
-            self.sales_tax_rate = 0.0
+        # API Endpoints (Browse API used only for token validation)
+        self.ebay_browse_api_url = "https://api.ebay.com/buy/browse/v1"
             
     def validate(self):
         """Validate required configuration"""
