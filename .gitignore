@@ -11,6 +11,8 @@ venv/
 # Environment and secrets
 .env
 .env.*
+sync-env.sh
+run.sh
 
 # Local data
 tracking_history.json

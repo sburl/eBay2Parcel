@@ -259,6 +259,9 @@ def process_account(suffix: str, history, history_tracking_numbers, days_back: i
     except Exception as e:
         logger.critical(f"[{label}] Initialization failed: {e}")
         return 0
+    if not parcel.api_key:
+        logger.critical(f"[{label}] PARCEL_API_KEY missing; aborting before any Parcel calls.")
+        return 0
 
     logger.info(f"[{label}] Fetching recent orders from eBay (last {days_back} days)...")
     orders = ebay.get_recent_orders(days_back=days_back)
