@@ -99,24 +99,97 @@ class TesteBay2Parcel(unittest.TestCase):
         self.assertEqual(aged_skipped, 0)
 
     @patch('main.requests.post')
-    def test_parcel_client_add_delivery(self, mock_post):
+    def test_parcel_client_add_delivery_success(self, mock_post):
         # Mock environment variable
         with patch.dict(os.environ, {'PARCEL_API_KEY': 'test_key'}):
             client = ParcelClient()
-            
+
             # Mock successful response
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_post.return_value = mock_response
-            
-            success = client.add_delivery('123', 'usps', 'Test')
+
+            success, rate_limited = client.add_delivery('123', 'usps', 'Test')
             self.assertTrue(success)
-            
+            self.assertFalse(rate_limited)
+
             # Verify API call
             mock_post.assert_called_once()
             args, kwargs = mock_post.call_args
             self.assertEqual(kwargs['json']['tracking_number'], '123')
             self.assertEqual(kwargs['headers']['api-key'], 'test_key')
+
+    @patch('main.requests.post')
+    def test_parcel_client_add_delivery_already_exists(self, mock_post):
+        with patch.dict(os.environ, {'PARCEL_API_KEY': 'test_key'}):
+            client = ParcelClient()
+
+            # Mock 400 response with "already added" error
+            mock_response = MagicMock()
+            mock_response.status_code = 400
+            mock_response.json.return_value = {'error_message': 'Delivery already added'}
+            mock_post.return_value = mock_response
+
+            success, rate_limited = client.add_delivery('123', 'usps', 'Test')
+            self.assertTrue(success)  # Should treat as success
+            self.assertFalse(rate_limited)
+
+    @patch('main.requests.post')
+    def test_parcel_client_add_delivery_unsupported_carrier(self, mock_post):
+        with patch.dict(os.environ, {'PARCEL_API_KEY': 'test_key'}):
+            client = ParcelClient()
+
+            # Mock 400 response with unsupported carrier error
+            mock_response = MagicMock()
+            mock_response.status_code = 400
+            mock_response.json.return_value = {'error_message': 'Unsupported carrier'}
+            mock_post.return_value = mock_response
+
+            success, rate_limited = client.add_delivery('123', 'invalid', 'Test')
+            self.assertFalse(success)
+            self.assertFalse(rate_limited)
+
+    @patch('main.requests.post')
+    def test_parcel_client_add_delivery_rate_limited(self, mock_post):
+        with patch.dict(os.environ, {'PARCEL_API_KEY': 'test_key'}):
+            client = ParcelClient()
+
+            # Mock 429 rate limit response
+            mock_response = MagicMock()
+            mock_response.status_code = 429
+            mock_response.json.return_value = {'error_message': 'Rate limit exceeded'}
+            mock_response.text = 'Rate limit exceeded'
+            mock_post.return_value = mock_response
+
+            success, rate_limited = client.add_delivery('123', 'usps', 'Test')
+            self.assertFalse(success)
+            self.assertTrue(rate_limited)
+
+    @patch('main.requests.post')
+    def test_parcel_client_add_delivery_server_error(self, mock_post):
+        with patch.dict(os.environ, {'PARCEL_API_KEY': 'test_key'}):
+            client = ParcelClient()
+
+            # Mock 500 server error response
+            mock_response = MagicMock()
+            mock_response.status_code = 500
+            mock_response.json.side_effect = Exception("No JSON")
+            mock_response.text = 'Internal Server Error'
+            mock_post.return_value = mock_response
+
+            success, rate_limited = client.add_delivery('123', 'usps', 'Test')
+            self.assertFalse(success)
+            self.assertFalse(rate_limited)
+
+    @patch('main.requests.post')
+    def test_parcel_client_add_delivery_missing_api_key(self, mock_post):
+        with patch.dict(os.environ, {}, clear=True):
+            client = ParcelClient()
+
+            success, rate_limited = client.add_delivery('123', 'usps', 'Test')
+            self.assertFalse(success)
+            self.assertFalse(rate_limited)
+            mock_post.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main()
