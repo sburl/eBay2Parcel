@@ -35,7 +35,7 @@ Keep `.env` out of version control.
 ## Getting eBay OAuth tokens (one-time)
 The `shared_ebay.auth` helper will refresh tokens automatically, but you need an initial refresh token.
 
-Helper library lives at `https://github.com/sburl/eBayAPIHelpers.git` (already vendored here under `shared_ebay/`).
+Helper library is installed from `https://github.com/sburl/eBayAPIHelpers.git` via `requirements.txt`.
 
 1) Build an authorization URL (uses your RuName redirect):
 ```
