@@ -4,13 +4,22 @@ import json
 import requests
 import logging
 import argparse
-import fcntl
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from ebaysdk.trading import Connection as Trading
 from ebaysdk.exception import ConnectionError
+
+# Platform-specific imports
+try:
+    import fcntl
+    HAS_FCNTL = True
+except ImportError:
+    # fcntl not available on Windows
+    HAS_FCNTL = False
+    import warnings
+    warnings.warn("fcntl not available - file locking disabled. Concurrent writes may corrupt data.", RuntimeWarning)
 
 # Try importing shared_ebay, with fallback to local APIHelpers
 try:
@@ -195,8 +204,19 @@ def save_history(history, dry_run=False):
         return True
 
     history_file = "tracking_history.json"
+    lockfile = ".tracking_history.lock"
 
+    lock_fd = None
     try:
+        # Acquire exclusive lock on dedicated lockfile to prevent concurrent writes
+        # This locks the target file, not the temp file, preventing race conditions
+        if HAS_FCNTL:
+            lock_fd = os.open(lockfile, os.O_CREAT | os.O_RDWR, 0o644)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            logger.debug("Acquired exclusive lock on tracking_history.json")
+        else:
+            logger.warning("File locking unavailable (Windows) - concurrent writes may corrupt data")
+
         # Create temp file in same directory for atomic rename
         temp_fd, temp_path = tempfile.mkstemp(
             dir=os.path.dirname(history_file) or '.',
@@ -205,14 +225,12 @@ def save_history(history, dry_run=False):
         )
 
         try:
-            # Acquire exclusive lock on temp file
-            fcntl.flock(temp_fd, fcntl.LOCK_EX)
-
             # Write to temp file
             with os.fdopen(temp_fd, 'w') as f:
                 json.dump(history, f, indent=2)
 
             # Atomic rename (replaces existing file)
+            # Protected by lockfile lock, so no race condition
             os.rename(temp_path, history_file)
             logger.debug(f"Successfully saved {len(history)} items to {history_file}")
             return True
@@ -223,7 +241,17 @@ def save_history(history, dry_run=False):
                 os.unlink(temp_path)
             except:
                 pass
-            raise e
+            raise
+
+        finally:
+            # Release lock
+            if HAS_FCNTL and lock_fd is not None:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                    os.close(lock_fd)
+                    logger.debug("Released lock on tracking_history.json")
+                except:
+                    pass
 
     except Exception as e:
         logger.error(f"Error saving history: {e}")
