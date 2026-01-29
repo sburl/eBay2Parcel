@@ -2,6 +2,24 @@
 
 Automate tracking your eBay purchases in the Parcel app. This lightweight Python script fetches your recent eBay buyer orders, filters out delivered packages, and automatically adds tracking numbers to [Parcel](https://parcelapp.net/) so you can track all your shipments in one place.
 
+**Part of the eBay project ecosystem** - Uses [APIHelpers](https://github.com/sburl/eBayAPIHelpers) for OAuth token management.
+
+## Architecture
+
+```
+eBay2Parcel (order tracker)
+    ↓ uses auth only
+APIHelpers@4091854 (token management)
+    ↓ authenticates
+eBay Trading API (orders)
+    ↓ tracks in
+Parcel app
+```
+
+**What eBay2Parcel provides**: Lightweight pipe between eBay purchases and Parcel tracking
+**What APIHelpers provides**: OAuth token management and auto-refresh
+**See**: [ECOSYSTEM.md](https://github.com/sburl/eBayAPIHelpers/blob/main/ECOSYSTEM.md) for integration details
+
 ## Features
 
 - Fetches eBay orders from the last 90 days
