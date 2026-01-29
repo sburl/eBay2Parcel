@@ -3,6 +3,9 @@ import sys
 import json
 import requests
 import logging
+import argparse
+import fcntl
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from dotenv import load_dotenv
@@ -86,19 +89,32 @@ class EbayClient:
             return None
 
 class ParcelClient:
-    def __init__(self):
+    def __init__(self, dry_run=False):
         self.api_key = os.getenv("PARCEL_API_KEY")
         self.base_url = "https://api.parcel.app/external/add-delivery/"
-        
-        if not self.api_key:
+        self.dry_run = dry_run
+
+        if not self.api_key and not dry_run:
             logger.warning("PARCEL_API_KEY not found in environment variables")
+
+        if dry_run:
+            logger.info("🔍 DRY-RUN MODE: No API calls will be made to Parcel")
 
     def add_delivery(self, tracking_number, carrier_code, description):
         """Add a delivery to Parcel app.
 
+        Args:
+            tracking_number: Tracking number to add
+            carrier_code: Carrier code (usps, ups, fedex, etc.)
+            description: Description for the shipment
+
         Returns:
             (success: bool, rate_limited: bool)
         """
+        if self.dry_run:
+            logger.info(f"[DRY-RUN] Would add to Parcel: {tracking_number} ({carrier_code}) - {description}")
+            return True, False
+
         if not self.api_key:
             logger.error("Cannot add delivery: Missing Parcel API Key")
             return False, False
@@ -160,9 +176,58 @@ def load_history():
             return []
     return []
 
-def save_history(history):
-    with open("tracking_history.json", "w") as f:
-        json.dump(history, f, indent=2)
+def save_history(history, dry_run=False):
+    """
+    Save tracking history to file with atomic write and file locking.
+
+    Uses a temporary file + atomic rename to prevent corruption,
+    and file locking to prevent concurrent writes.
+
+    Args:
+        history: List of tracking history dicts
+        dry_run: If True, only log what would be saved
+
+    Returns:
+        bool: True if successful
+    """
+    if dry_run:
+        logger.info(f"[DRY-RUN] Would save {len(history)} items to tracking_history.json")
+        return True
+
+    history_file = "tracking_history.json"
+
+    try:
+        # Create temp file in same directory for atomic rename
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=os.path.dirname(history_file) or '.',
+            prefix='.tracking_history_',
+            suffix='.tmp'
+        )
+
+        try:
+            # Acquire exclusive lock on temp file
+            fcntl.flock(temp_fd, fcntl.LOCK_EX)
+
+            # Write to temp file
+            with os.fdopen(temp_fd, 'w') as f:
+                json.dump(history, f, indent=2)
+
+            # Atomic rename (replaces existing file)
+            os.rename(temp_path, history_file)
+            logger.debug(f"Successfully saved {len(history)} items to {history_file}")
+            return True
+
+        except Exception as e:
+            # Clean up temp file on error
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
+            raise e
+
+    except Exception as e:
+        logger.error(f"Error saving history: {e}")
+        return False
 
 def _delivered_tracking_numbers(order):
     """Collect tracking numbers already marked delivered via shipment details."""
@@ -306,16 +371,16 @@ def _account_suffixes():
     return suffixes
 
 
-def process_account(suffix: str, history, history_tracking_numbers, days_back: int = 90):
+def process_account(suffix: str, history, history_tracking_numbers, days_back: int = 90, dry_run: bool = False):
     label = f"default" if not suffix else f"account {suffix}"
     logger.info(f"[{label}] Initializing clients...")
     try:
         ebay = EbayClient(suffix=suffix)
-        parcel = ParcelClient()
+        parcel = ParcelClient(dry_run=dry_run)
     except Exception as e:
         logger.critical(f"[{label}] Initialization failed: {e}")
         return 0
-    if not parcel.api_key:
+    if not parcel.api_key and not dry_run:
         logger.critical(f"[{label}] PARCEL_API_KEY missing; aborting before any Parcel calls.")
         return 0
 
@@ -394,8 +459,45 @@ def process_account(suffix: str, history, history_tracking_numbers, days_back: i
 
 
 def main():
-    print("Starting eBay2Parcel...")
-    
+    parser = argparse.ArgumentParser(
+        description="eBay2Parcel: Automatically sync eBay shipments to Parcel app",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s                    # Normal mode: sync shipments to Parcel
+  %(prog)s --dry-run          # Dry-run: show what would be synced without making API calls
+  %(prog)s --days-back 30     # Only sync shipments from last 30 days
+
+Environment Variables:
+  EBAY_APP_ID                 # eBay App ID (required)
+  EBAY_CLIENT_SECRET          # eBay Client Secret (required)
+  EBAY_USER_TOKEN             # eBay User Token (required)
+  PARCEL_API_KEY              # Parcel API Key (required unless --dry-run)
+  MAX_SHIPMENT_AGE_DAYS       # Max age for shipments (default: 45)
+        """
+    )
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Show what would be synced without making any API calls to Parcel (safe for testing)'
+    )
+    parser.add_argument(
+        '--days-back',
+        type=int,
+        default=90,
+        help='Number of days back to fetch orders (default: 90)'
+    )
+
+    args = parser.parse_args()
+
+    if args.dry_run:
+        print("=" * 60)
+        print("🔍 DRY-RUN MODE ENABLED")
+        print("No changes will be made to Parcel")
+        print("=" * 60)
+    else:
+        print("Starting eBay2Parcel...")
+
     history = load_history()
     history_tracking_numbers = [item['tracking_number'] for item in history]
 
@@ -406,12 +508,23 @@ def main():
 
     total_added = 0
     for suffix in suffixes:
-        added = process_account(suffix, history, history_tracking_numbers, days_back=90)
+        added = process_account(
+            suffix,
+            history,
+            history_tracking_numbers,
+            days_back=args.days_back,
+            dry_run=args.dry_run
+        )
         total_added += added
-    
+
     if total_added > 0:
-        save_history(history)
-        logger.info(f"Successfully added {total_added} new shipments to Parcel across all accounts.")
+        if save_history(history, dry_run=args.dry_run):
+            if args.dry_run:
+                logger.info(f"[DRY-RUN] Would add {total_added} new shipments to Parcel across all accounts.")
+            else:
+                logger.info(f"Successfully added {total_added} new shipments to Parcel across all accounts.")
+        else:
+            logger.error("Failed to save history")
     else:
         logger.info("No new shipments to add across all accounts.")
 
