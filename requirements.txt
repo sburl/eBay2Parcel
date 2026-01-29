@@ -1,4 +1,6 @@
 requests
 python-dotenv
 ebaysdk
-shared_ebay @ git+https://github.com/sburl/eBayAPIHelpers.git@989cb0bd448ee2db9171a87d01a640b8eee799a7
+# Pin to commit including auth improvements: retry/backoff, TokenStatus, exception handling
+# See: https://github.com/sburl/eBayAPIHelpers/tree/4091854
+shared_ebay @ git+https://github.com/sburl/eBayAPIHelpers.git@4091854
