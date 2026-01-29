@@ -3,10 +3,18 @@ import sys
 import unittest
 from pathlib import Path
 
-EBAY2PARCEL_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(EBAY2PARCEL_ROOT))
-
-from shared_ebay import config as shared_config
+# Try importing shared_ebay, with fallback to local APIHelpers
+try:
+    from shared_ebay import config as shared_config
+except ImportError:
+    # Fallback to local APIHelpers repo if not installed
+    EBAY2PARCEL_ROOT = Path(__file__).resolve().parents[1]
+    APIHELPERS_SRC = EBAY2PARCEL_ROOT.parent / "APIHelpers" / "src"
+    if APIHELPERS_SRC.exists():
+        sys.path.insert(0, str(APIHELPERS_SRC))
+        from shared_ebay import config as shared_config
+    else:
+        raise ImportError("shared_ebay not found. Install with: pip install git+https://github.com/sburl/eBayAPIHelpers.git")
 
 
 class ParcelConfigTests(unittest.TestCase):

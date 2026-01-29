@@ -1,3 +1,4 @@
 requests
 python-dotenv
 ebaysdk
+shared_ebay @ git+https://github.com/sburl/eBayAPIHelpers.git

@@ -1,13 +1,26 @@
 import os
+import sys
 import json
 import requests
 import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from dotenv import load_dotenv
 from ebaysdk.trading import Connection as Trading
 from ebaysdk.exception import ConnectionError
 
-from shared_ebay.auth import ensure_valid_token, get_token_manager
+# Try importing shared_ebay, with fallback to local APIHelpers
+try:
+    from shared_ebay.auth import ensure_valid_token, get_token_manager
+except ImportError:
+    # Fallback to local APIHelpers repo if not installed
+    EBAY2PARCEL_ROOT = Path(__file__).resolve().parent
+    APIHELPERS_SRC = EBAY2PARCEL_ROOT.parent / "APIHelpers" / "src"
+    if APIHELPERS_SRC.exists():
+        sys.path.insert(0, str(APIHELPERS_SRC))
+        from shared_ebay.auth import ensure_valid_token, get_token_manager
+    else:
+        raise ImportError("shared_ebay not found. Install with: pip install git+https://github.com/sburl/eBayAPIHelpers.git")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
