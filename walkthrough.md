@@ -1,5 +1,8 @@
 # eBay2Parcel Walkthrough
 
+**Created:** 2025-11-22-21-45
+**Last Updated:** 2026-01-28-22-58
+
 ## What this project does
 - Pulls your recent eBay orders as a buyer and extracts shipment tracking info.
 - Pushes each tracking number into Parcel via its external API.
