@@ -1,5 +1,8 @@
 # eBay2Parcel
 
+**Created:** 2025-11-22-21-45
+**Last Updated:** 2025-11-24-15-58
+
 Automate tracking your eBay purchases in the Parcel app. This lightweight Python script fetches your recent eBay buyer orders, filters out delivered packages, and automatically adds tracking numbers to [Parcel](https://parcelapp.net/) so you can track all your shipments in one place.
 
 ## Features
