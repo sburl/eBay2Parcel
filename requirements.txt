@@ -1,6 +1,11 @@
 requests
 python-dotenv
 ebaysdk
-# Pin to commit including auth improvements: retry/backoff, TokenStatus, exception handling
-# See: https://github.com/sburl/eBayAPIHelpers/tree/4091854
-shared_ebay @ git+https://github.com/sburl/eBayAPIHelpers.git@4091854
+# Pin to commit including auth improvements: retry/backoff, TokenStatus, exception
+# handling, and the refresh-scope fix (eBayAPIHelpers#10). The previous pin (4091854)
+# sent a hardcoded buy.order scope on every token refresh; eBay rejects a refresh
+# requesting scope outside the original consent with invalid_scope (400), so refresh
+# failed permanently for this app. It surfaced as "Failed to obtain valid eBay token",
+# which reads like an expired token and is not.
+# See: https://github.com/sburl/eBayAPIHelpers/tree/dd01261afe77
+shared_ebay @ git+https://github.com/sburl/eBayAPIHelpers.git@dd01261afe77
